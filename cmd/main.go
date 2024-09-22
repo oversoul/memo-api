@@ -10,6 +10,7 @@ import (
 	"memo/api"
 	"memo/api/auth"
 	"memo/api/notes/repository"
+	"memo/api/share"
 	"memo/pkg/database"
 	"memo/pkg/logger"
 
@@ -45,6 +46,7 @@ func run(ctx context.Context, _ io.Reader, out, stderr io.Writer) error {
 		NoteRepo:  repository.NewNotes(db),
 		TodoRepo:  repository.NewTodoNotes(db),
 		MovieRepo: repository.NewMovieNotes(db),
+		ShareRepo: share.NewShareRepo(db),
 		AuthStore: auth.NewStore(auth.NewRepo(db)),
 	}
 

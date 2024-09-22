@@ -7,6 +7,7 @@ import (
 
 	"memo/api/notes/models"
 	"memo/api/notes/repository"
+	"memo/api/share"
 	"memo/pkg/logger"
 	"memo/pkg/response"
 	"memo/pkg/validation"
@@ -40,6 +41,16 @@ func HandleGet(logger logger.Logger, repo repository.NotesRepository) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userId := r.Context().Value("user").(string)
 		if note, err := repo.GetById(r.PathValue("id"), userId, r.Context()); err != nil {
+
+			// check permission
+			if !share.CanRead(&note.BaseNote, userId) {
+				response.RespondErr(w, response.ErrorResponse{
+					Status:  http.StatusForbidden,
+					Message: "You don't have permission to access this note",
+				})
+				return
+			}
+
 			response.RespondErr(w, response.NotFound())
 		} else {
 			response.Respond(w, note, http.StatusOK)
@@ -238,6 +249,14 @@ func HandleUpdate(logger logger.Logger, repo repository.NotesRepository) http.Ha
 		if oldNote.Type == "movie" && movieInfo != nil {
 			oldNote.MovieNote.Year = movieInfo.Year
 			oldNote.MovieNote.Director = movieInfo.Director
+		}
+
+		if !share.CanWrite(&oldNote.BaseNote, userId) {
+			response.RespondErr(w, response.ErrorResponse{
+				Status:  http.StatusForbidden,
+				Message: "You don't have permission to update this note",
+			})
+			return
 		}
 
 		err = repo.Update(oldNote, r.Context())

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -21,7 +22,7 @@ type FetchFilter struct {
 
 type NotesRepository interface {
 	Add(note models.EmbeddedNote, userId string, ctx context.Context) (string, error)
-	List(filter FetchFilter, ctx context.Context) ([]*models.BaseNote, error)
+	List(filter FetchFilter, ctx context.Context) ([]*models.UserNote, error)
 	GetById(oId string, userId string, ctx context.Context) (*models.EmbeddedNote, error)
 	Update(note *models.EmbeddedNote, ctx context.Context) error
 	Delete(id string, userId string, ctx context.Context) error
@@ -115,7 +116,7 @@ func (r *notesRepository) Add(note models.EmbeddedNote, userId string, ctx conte
 	}
 }
 
-func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*models.BaseNote, error) {
+func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*models.UserNote, error) {
 	sortLayout := 1 // asc
 	if filter.Sort == "desc" || filter.Sort == "" {
 		sortLayout = -1 // desc
@@ -127,45 +128,100 @@ func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*mode
 
 	collection := r.client.Collection("notes")
 
-	query := bson.D{}
-	if filter.UserId != "" {
-		objId, err := primitive.ObjectIDFromHex(filter.UserId)
-		if err != nil {
-			return nil, err
-		}
-
-		query = append(query, primitive.E{Key: "user_id", Value: objId})
+	if filter.UserId == "" {
+		return nil, fmt.Errorf("User is required.")
 	}
+
+	objId, err := primitive.ObjectIDFromHex(filter.UserId)
+	if err != nil {
+		return nil, err
+	}
+
+	query := bson.D{}
+	// if filter.UserId != "" {
+	// 	objId, err := primitive.ObjectIDFromHex(filter.UserId)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	//
+	// 	query = append(query, primitive.E{Key: "user_id", Value: objId})
+	// }
 
 	if filter.Type != "all" && filter.Type != "" {
 		query = append(query, primitive.E{Key: "type", Value: filter.Type})
 	}
 
-	cursor, err := collection.Find(ctx, query, findOptions)
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"user_id": objId}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         "users",
+			"localField":   "shared_with.user_id",
+			"foreignField": "_id",
+			"as":           "shared_users",
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"_id":        1,
+			"type":       1,
+			"tags":       1,
+			"title":      1,
+			"user_id":    1,
+			"created_at": 1,
+			"updated_at": 1,
+			"shared_with": bson.M{
+				"$map": bson.M{
+					"input": "$shared_with",
+					"as":    "share",
+					"in": bson.M{
+						"user": bson.M{
+							"$arrayElemAt": []interface{}{
+								bson.M{"$filter": bson.M{
+									"input": "$shared_users",
+									"cond":  bson.M{"$eq": []interface{}{"$$this._id", "$$share.user_id"}},
+								}},
+								0,
+							},
+						},
+						"permission": "$$share.permission",
+					},
+				},
+			},
+		}}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	// cursor, err := collection.Find(ctx, query, findOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	note := []*models.BaseNote{}
+	defer cursor.Close(ctx)
 
-	// Finding multiple documents returns a cursor
-	// Iterating through the cursor allows us to decode documents one at a time
-	for cursor.Next(ctx) {
-		// create a value into which the single document can be decoded
-		var elem models.BaseNote
-		if err := cursor.Decode(&elem); err != nil {
-			return nil, err
-		}
-
-		note = append(note, &elem)
-	}
-
-	err = cursor.Close(ctx)
-	if err != nil {
+	var notes []*models.UserNote
+	if err = cursor.All(ctx, &notes); err != nil {
 		return nil, err
 	}
 
-	return note, nil
+	return notes, nil
+
+	//
+	// // Finding multiple documents returns a cursor
+	// // Iterating through the cursor allows us to decode documents one at a time
+	// for cursor.Next(ctx) {
+	// 	// create a value into which the single document can be decoded
+	// 	var elem models.BaseNote
+	// 	if err := cursor.Decode(&elem); err != nil {
+	// 		return nil, err
+	// 	}
+	//
+	// 	note = append(note, &elem)
+	// }
+	//
+	// err = cursor.Close(ctx)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	//
+	// return note, nil
 }
 
 func (r *notesRepository) Update(note *models.EmbeddedNote, ctx context.Context) error {

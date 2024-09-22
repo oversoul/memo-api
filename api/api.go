@@ -10,6 +10,7 @@ import (
 	"memo/api/auth"
 	"memo/api/notes"
 	"memo/api/notes/repository"
+	"memo/api/share"
 	"memo/pkg/logger"
 )
 
@@ -18,6 +19,7 @@ type DI struct {
 	NoteRepo  repository.NotesRepository
 	TodoRepo  repository.TodoNotesRepository
 	MovieRepo repository.MovieNotesRepository
+	ShareRepo share.ShareRepository
 	AuthStore auth.AuthStore
 }
 
@@ -68,6 +70,9 @@ func addRoutes(mux *http.ServeMux, di DI) {
 	middleware.Handle("POST /api/v1/notes/todo/{id}", notes.HandleCreateTodo(di.Logger, di.TodoRepo))
 
 	middleware.Handle("PUT /api/v1/notes/movie/{id}", notes.HandleUpdateMovie(di.Logger, di.MovieRepo))
+
+	middleware.Handle("GET /api/v1/shared-notes", share.HandleGetShared(di.Logger, di.ShareRepo))
+	middleware.Handle("POST /api/v1/notes/share", share.HandleShareNote(di.Logger, di.ShareRepo))
 }
 
 func New(di DI) http.Handler {
