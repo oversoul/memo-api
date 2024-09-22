@@ -15,7 +15,7 @@ func New(config EnvConfig) (*mongo.Database, error) {
 	host := config("DATABASE_HOST")
 	port := config("DATABASE_PORT")
 
-	psn := fmt.Sprintf("mongosb://%s:%s", host, port)
+	psn := fmt.Sprintf("mongodb://%s:%s", host, port)
 
 	clientOptions := options.Client().ApplyURI(psn)
 
