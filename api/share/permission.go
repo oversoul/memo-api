@@ -1,8 +1,15 @@
 package share
 
-import "memo/api/notes/models"
+import (
+	"fmt"
+	"memo/api/notes/models"
+)
 
-func CanWrite(note *models.BaseNote, userId string) bool {
+func CanWrite(note *models.EmbeddedNote, userId string) bool {
+	if note == nil {
+		fmt.Println("[CanWrite] Note is nil")
+		return false
+	}
 	if note.UserId.Hex() != userId {
 		hasPermission := false
 		for _, sharedUser := range note.SharedWith {
@@ -20,7 +27,12 @@ func CanWrite(note *models.BaseNote, userId string) bool {
 	return true
 }
 
-func CanRead(note *models.BaseNote, userId string) bool {
+func CanRead(note *models.EmbeddedNote, userId string) bool {
+	if note == nil {
+		fmt.Println("[CanRead] Note is nil")
+		return false
+	}
+
 	if note.UserId.Hex() != userId {
 		hasPermission := false
 		for _, sharedUser := range note.SharedWith {

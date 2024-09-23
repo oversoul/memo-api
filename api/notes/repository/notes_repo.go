@@ -22,8 +22,8 @@ type FetchFilter struct {
 
 type NotesRepository interface {
 	Add(note models.EmbeddedNote, userId string, ctx context.Context) (string, error)
-	List(filter FetchFilter, ctx context.Context) ([]*models.UserNote, error)
-	GetById(oId string, userId string, ctx context.Context) (*models.EmbeddedNote, error)
+	List(filter FetchFilter, ctx context.Context) ([]*models.BaseNote, error)
+	GetById(oId string, ctx context.Context) (*models.EmbeddedNote, error)
 	Update(note *models.EmbeddedNote, ctx context.Context) error
 	Delete(id string, userId string, ctx context.Context) error
 }
@@ -36,7 +36,7 @@ func NewNotes(client *mongo.Database) NotesRepository {
 	return &notesRepository{client}
 }
 
-func (r *notesRepository) GetById(oId string, userId string, ctx context.Context) (*models.EmbeddedNote, error) {
+func (r *notesRepository) GetById(oId string, ctx context.Context) (*models.EmbeddedNote, error) {
 	collection := r.client.Collection("notes")
 
 	id, err := primitive.ObjectIDFromHex(oId)
@@ -44,14 +44,8 @@ func (r *notesRepository) GetById(oId string, userId string, ctx context.Context
 		return nil, err
 	}
 
-	uId, err := primitive.ObjectIDFromHex(userId)
-	if err != nil {
-		return nil, err
-	}
-
 	filter := bson.D{
 		primitive.E{Key: "_id", Value: id},
-		primitive.E{Key: "user_id", Value: uId},
 	}
 
 	var note *models.EmbeddedNote
@@ -116,7 +110,7 @@ func (r *notesRepository) Add(note models.EmbeddedNote, userId string, ctx conte
 	}
 }
 
-func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*models.UserNote, error) {
+func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*models.BaseNote, error) {
 	sortLayout := 1 // asc
 	if filter.Sort == "desc" || filter.Sort == "" {
 		sortLayout = -1 // desc
@@ -137,7 +131,9 @@ func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*mode
 		return nil, err
 	}
 
-	query := bson.D{}
+	query := bson.D{
+		primitive.E{Key: "user_id", Value: objId},
+	}
 	// if filter.UserId != "" {
 	// 	objId, err := primitive.ObjectIDFromHex(filter.UserId)
 	// 	if err != nil {
@@ -151,52 +147,14 @@ func (r *notesRepository) List(filter FetchFilter, ctx context.Context) ([]*mode
 		query = append(query, primitive.E{Key: "type", Value: filter.Type})
 	}
 
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"user_id": objId}}},
-		{{Key: "$lookup", Value: bson.M{
-			"from":         "users",
-			"localField":   "shared_with.user_id",
-			"foreignField": "_id",
-			"as":           "shared_users",
-		}}},
-		{{Key: "$project", Value: bson.M{
-			"_id":        1,
-			"type":       1,
-			"tags":       1,
-			"title":      1,
-			"user_id":    1,
-			"created_at": 1,
-			"updated_at": 1,
-			"shared_with": bson.M{
-				"$map": bson.M{
-					"input": "$shared_with",
-					"as":    "share",
-					"in": bson.M{
-						"user": bson.M{
-							"$arrayElemAt": []interface{}{
-								bson.M{"$filter": bson.M{
-									"input": "$shared_users",
-									"cond":  bson.M{"$eq": []interface{}{"$$this._id", "$$share.user_id"}},
-								}},
-								0,
-							},
-						},
-						"permission": "$$share.permission",
-					},
-				},
-			},
-		}}},
-	}
-
-	cursor, err := collection.Aggregate(ctx, pipeline)
-	// cursor, err := collection.Find(ctx, query, findOptions)
+	cursor, err := collection.Find(ctx, query, findOptions)
 	if err != nil {
 		return nil, err
 	}
 
 	defer cursor.Close(ctx)
 
-	var notes []*models.UserNote
+	notes := []*models.BaseNote{}
 	if err = cursor.All(ctx, &notes); err != nil {
 		return nil, err
 	}

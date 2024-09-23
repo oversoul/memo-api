@@ -40,21 +40,22 @@ func HandleAll(logger logger.Logger, repo repository.NotesRepository) http.Handl
 func HandleGet(logger logger.Logger, repo repository.NotesRepository) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userId := r.Context().Value("user").(string)
-		if note, err := repo.GetById(r.PathValue("id"), userId, r.Context()); err != nil {
-
-			// check permission
-			if !share.CanRead(&note.BaseNote, userId) {
-				response.RespondErr(w, response.ErrorResponse{
-					Status:  http.StatusForbidden,
-					Message: "You don't have permission to access this note",
-				})
-				return
-			}
-
+		note, err := repo.GetById(r.PathValue("id"), r.Context())
+		if err != nil {
 			response.RespondErr(w, response.NotFound())
-		} else {
-			response.Respond(w, note, http.StatusOK)
+			return
 		}
+
+		// check permission
+		if !share.CanRead(note, userId) && !note.OwnedBy(userId) {
+			response.RespondErr(w, response.ErrorResponse{
+				Status:  http.StatusForbidden,
+				Message: "You don't have permission to access this note",
+			})
+			return
+		}
+
+		response.Respond(w, note, http.StatusOK)
 	})
 }
 
@@ -197,7 +198,7 @@ func HandleUpdate(logger logger.Logger, repo repository.NotesRepository) http.Ha
 
 		userId := r.Context().Value("user").(string)
 
-		oldNote, err := repo.GetById(id, userId, r.Context())
+		oldNote, err := repo.GetById(id, r.Context())
 		if err != nil {
 			response.RespondErr(w, response.NotFound())
 			return
@@ -251,7 +252,7 @@ func HandleUpdate(logger logger.Logger, repo repository.NotesRepository) http.Ha
 			oldNote.MovieNote.Director = movieInfo.Director
 		}
 
-		if !share.CanWrite(&oldNote.BaseNote, userId) {
+		if !share.CanWrite(oldNote, userId) && !oldNote.OwnedBy(userId) {
 			response.RespondErr(w, response.ErrorResponse{
 				Status:  http.StatusForbidden,
 				Message: "You don't have permission to update this note",

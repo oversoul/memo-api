@@ -30,6 +30,10 @@ type BaseNote struct {
 	SharedWith []SharedUser       `bson:"shared_with" json:"shared_with,omitempty"`
 }
 
+func (n *BaseNote) OwnedBy(user string) bool {
+	return user == n.UserId.Hex()
+}
+
 // EmbeddedNote uses embedded documents for specific note types
 type EmbeddedNote struct {
 	BaseNote  `bson:",inline"`
